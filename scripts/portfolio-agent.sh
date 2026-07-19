@@ -21,6 +21,7 @@ LOCK_FILE="${RUN_ROOT}/runner.lock"
 usage() {
     cat <<'EOF'
 사용법:
+  bash scripts/portfolio-agent.sh                # 현재 상태 확인
   bash scripts/portfolio-agent.sh start
   bash scripts/portfolio-agent.sh status
   bash scripts/portfolio-agent.sh gates
@@ -607,7 +608,7 @@ case "$command_name" in
         start_run
         ;;
     status)
-        [ "$#" -eq 1 ] || fail "status에는 추가 인수가 없습니다."
+        [ "$#" -le 1 ] || fail "status에는 추가 인수가 없습니다."
         show_status
         ;;
     gates)
