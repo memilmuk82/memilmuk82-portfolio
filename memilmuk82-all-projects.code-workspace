@@ -1,0 +1,26 @@
+{
+  "folders": [
+    {
+      "name": "memilmuk82 projects",
+      "path": ".."
+    }
+  ],
+  "settings": {
+    "files.exclude": {
+      "**/.git": true,
+      "**/.venv": true,
+      "**/node_modules": true,
+      "**/__pycache__": true,
+      "**/.pytest_cache": true
+    },
+    "search.exclude": {
+      "**/.git": true,
+      "**/.venv": true,
+      "**/node_modules": true,
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/_static": true
+    },
+    "git.autoRepositoryDetection": "subFolders"
+  }
+}

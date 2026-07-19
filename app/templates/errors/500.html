@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% from 'partials/icons.html' import arrow %}
+{% block title %}잠시 문제가 생겼습니다 — MEMILMUK82{% endblock %}
+{% block page_name %}오류{% endblock %}
+{% block content %}
+<section class="section error-page">
+  <div class="shell">
+    <p class="error-code">500</p>
+    <h1>잠시 문제가 생겼습니다.</h1>
+    <p>요청을 처리하지 못했습니다. 잠시 뒤 다시 시도해 주세요.</p>
+    <a class="button button-primary" href="{{ url_for('public.home') }}">홈으로 돌아가기 {{ arrow() }}</a>
+  </div>
+</section>
+{% endblock %}

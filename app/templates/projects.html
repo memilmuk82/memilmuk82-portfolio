@@ -1,0 +1,93 @@
+{% extends 'base.html' %}
+{% from 'partials/icons.html' import arrow, search %}
+
+{% block title %}56개 프로젝트 인벤토리 — MEMILMUK82{% endblock %}
+{% block description %}56개 저장소를 서브도메인 웹앱, 정적 사이트, 소스 소개, 비공개·제외로 분류한 실제 프로젝트 인벤토리입니다.{% endblock %}
+{% block page_name %}프로젝트{% endblock %}
+
+{% block content %}
+<section class="page-intro section">
+  <div class="shell page-intro-grid">
+    <div>
+      <h1>56개 프로젝트</h1>
+      <p>실제 저장소를 배포 방식과 공개 범위에 따라 분류했습니다. 운영 주소, 정적 사이트, GitHub 소스를 한곳에서 확인할 수 있습니다.</p>
+    </div>
+    <div class="blueprint-mark" aria-hidden="true"><span></span><i></i><b></b></div>
+  </div>
+  <div class="shell criteria-grid inventory-primary-groups" aria-label="주요 연결 방식">
+    <article><span>{{ groups[0].count }}</span><div><h2>서브도메인 웹앱</h2><p>PostgreSQL 3개 · SQLite 5개 · 무DB 1개를 memilmuk82.com 하위에서 운영</p></div></article>
+    <article><span>{{ groups[1].count }}</span><div><h2>정적 사이트</h2><p>GitHub Pages 계열 정적 결과물을 사이트로 직접 연결</p></div></article>
+    <article><span>{{ groups[2].count }}</span><div><h2>소스·프로젝트 소개</h2><p>GitHub, Apps Script, 외부 플랫폼과 학습 기록을 설명 중심으로 연결</p></div></article>
+  </div>
+</section>
+
+<section class="section-compact inventory-status-section" aria-labelledby="inventory-status-heading">
+  <div class="shell">
+    <div class="editorial-heading-row">
+      <h2 id="inventory-status-heading">분류 현황</h2>
+      <p class="inventory-audit-note">기준일 2026.07.18 · 누락 0 · 중복 0</p>
+    </div>
+    <ol class="inventory-counts">
+      {% for item in groups %}
+        <li><span>0{{ loop.index }}</span><strong>{{ item.label }}</strong><b>{{ item.count }}</b></li>
+      {% endfor %}
+      <li class="inventory-total"><span>∑</span><strong>전체 저장소</strong><b>56</b></li>
+    </ol>
+  </div>
+</section>
+
+<section class="section project-list-section" aria-labelledby="project-list-heading">
+  <div class="shell">
+    <div class="editorial-heading-row inventory-list-heading">
+      <h2 id="project-list-heading">전체 인벤토리</h2>
+      <p>비공개·제외 항목도 숨기지 않고 공개하지 않는 이유만 표시합니다.</p>
+    </div>
+    <form class="filter-form inventory-filter-form" method="get" action="{{ url_for('public.projects') }}" data-project-filters data-total-count="{{ groups | sum(attribute='count') }}">
+      <label class="search-field">
+        <span class="sr-only">프로젝트 검색</span>
+        {{ search() }}
+        <input type="search" name="q" value="{{ filters.q }}" placeholder="이름, 설명, 기술 검색" autocomplete="off" data-filter-query>
+      </label>
+      <label>
+        <span>연결 방식</span>
+        <select name="group" data-filter-group>
+          <option value="">전체 56개</option>
+          {% for item in groups %}<option value="{{ item.value }}"{% if filters.group == item.value %} selected{% endif %}>{{ item.label }} ({{ item.count }})</option>{% endfor %}
+        </select>
+      </label>
+      <button class="button button-primary filter-submit" type="submit">적용</button>
+    </form>
+
+    <p class="result-count" aria-live="polite" aria-atomic="true" data-result-count>{{ projects | length }}개의 프로젝트</p>
+    <div class="project-table-head inventory-table-head" aria-hidden="true">
+      <span>프로젝트</span><span>분류</span><span>연결 계획</span><span>주요 스택</span><span>링크</span>
+    </div>
+    <ul class="project-list inventory-list" data-project-list>
+      {% for project in projects %}
+        <li class="inventory-row inventory-row-{{ project.group }}" data-project-row data-search="{{ (project.name ~ ' ' ~ project.title ~ ' ' ~ project.summary ~ ' ' ~ project.stack ~ ' ' ~ project.destination) | lower }}" data-group="{{ project.group }}">
+          <div class="inventory-row-grid">
+            <div class="inventory-project-name">
+              <strong>{{ project.title }}</strong>
+              <span>{{ project.name }}</span>
+              <p>{{ project.summary }}</p>
+            </div>
+            <span class="inventory-group"><i aria-hidden="true"></i>{{ project.group_label }}</span>
+            <span class="inventory-destination">{{ project.destination }}</span>
+            <span class="inventory-stack">{{ project.stack }}</span>
+            <nav class="inventory-actions" aria-label="{{ project.title }} 링크">
+              {% if project.live_url %}<a href="{{ project.live_url }}" target="_blank" rel="noopener noreferrer">사이트 {{ arrow() }}</a>{% endif %}
+              {% if project.artifact_url %}<a href="{{ project.artifact_url }}" target="_blank" rel="noopener noreferrer">산출물 {{ arrow() }}</a>{% endif %}
+              {% if project.slug in detail_slugs %}<a href="{{ url_for('public.project_detail', slug=project.slug) }}">상세 {{ arrow() }}</a>{% endif %}
+              {% if project.repository_url %}<a href="{{ project.repository_url }}" target="_blank" rel="noopener noreferrer">GitHub {{ arrow() }}</a>{% endif %}
+              {% if not project.live_url and not project.artifact_url and project.slug not in detail_slugs and not project.repository_url %}<span>링크 없음</span>{% endif %}
+            </nav>
+          </div>
+        </li>
+      {% else %}
+        <li class="empty-result">조건에 맞는 프로젝트가 없습니다. 필터를 조정해 주세요.</li>
+      {% endfor %}
+    </ul>
+    <p class="empty-result" hidden data-filter-empty>조건에 맞는 프로젝트가 없습니다. 필터를 조정해 주세요.</p>
+  </div>
+</section>
+{% endblock %}

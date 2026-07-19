@@ -1,0 +1,12 @@
+{
+  "name": "memilmuk82-portfolio",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "css:build": "tailwindcss -c tailwind.config.js -i ./app/static/css/input.css -o ./app/static/css/site.css --minify",
+    "css:watch": "tailwindcss -c tailwind.config.js -i ./app/static/css/input.css -o ./app/static/css/site.css --watch"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

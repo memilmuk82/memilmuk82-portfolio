@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "project_name": { "type": "string", "minLength": 1 },
+    "status": {
+      "type": "string",
+      "enum": ["prepared", "no-change", "blocked", "excluded"]
+    },
+    "publication_method": {
+      "type": "string",
+      "enum": [
+        "existing-live",
+        "docker",
+        "github-pages",
+        "vercel-stateless",
+        "vercel-supabase",
+        "vercel-firebase",
+        "external-platform",
+        "repository-only",
+        "excluded"
+      ]
+    },
+    "readiness": {
+      "type": "string",
+      "enum": ["ready-for-review", "needs-work", "not-publishable"]
+    },
+    "summary": { "type": "string", "minLength": 1 },
+    "changed_files": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "verification": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "blockers": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "external_actions": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "portfolio_update": {
+      "type": "object",
+      "properties": {
+        "group": {
+          "type": "string",
+          "enum": ["subdomain", "site", "source", "excluded"]
+        },
+        "destination": { "type": "string" },
+        "live_url": { "type": ["string", "null"] },
+        "artifact_url": { "type": ["string", "null"] },
+        "notes": { "type": "string" }
+      },
+      "required": ["group", "destination", "live_url", "artifact_url", "notes"],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "project_name",
+    "status",
+    "publication_method",
+    "readiness",
+    "summary",
+    "changed_files",
+    "verification",
+    "blockers",
+    "external_actions",
+    "portfolio_update"
+  ],
+  "additionalProperties": false
+}

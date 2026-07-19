@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% from 'partials/icons.html' import arrow %}
+
+{% block title %}{{ project.title }} — MEMILMUK82{% endblock %}
+{% block description %}{{ project.summary }}{% endblock %}
+{% block page_name %}프로젝트{% endblock %}
+
+{% block content %}
+<article class="section project-detail">
+  <div class="shell">
+    <a class="back-link" href="{{ url_for('public.projects') }}">← 프로젝트 목록으로</a>
+    <header class="detail-header">
+      <h1>{{ project.title }}</h1>
+      <p>{{ project.summary }}</p>
+      <div class="detail-actions">
+        {% if project.live_url %}<a class="button button-primary" href="{{ project.live_url }}" target="_blank" rel="noopener noreferrer">운영 사이트 {{ arrow() }}</a>{% endif %}
+        {% if project.artifact_url %}<a class="button button-primary" href="{{ project.artifact_url }}" target="_blank" rel="noopener noreferrer">산출물 보기 {{ arrow() }}</a>{% endif %}
+        {% if project.repository_url %}<a class="button button-outline" href="{{ project.repository_url }}" target="_blank" rel="noopener noreferrer">GitHub 소스 {{ arrow() }}</a>{% endif %}
+      </div>
+    </header>
+    <div class="detail-layout">
+      <div class="detail-copy-grid">
+        <section><h2>해결하려던 문제</h2><p>{{ project.problem }}</p></section>
+        <section><h2>핵심 판단</h2><p>{{ project.decision }}</p></section>
+        <section><h2>담당한 범위</h2><p>{{ project.contribution }}</p></section>
+        <section><h2>검증된 결과</h2><p>{{ project.result }}</p></section>
+        <section><h2>공개 범위</h2><p>검증된 프로젝트 설명과 확인된 운영 주소·GitHub 저장소·산출물 링크를 함께 제공합니다.</p></section>
+        <section><h2>다음 개선</h2><p>배포 상태와 저장소 변경을 다시 확인해 인벤토리의 연결 상태를 지속적으로 갱신합니다.</p></section>
+      </div>
+      <aside class="decision-rail" aria-label="프로젝트 판단 흐름">
+        <div><span>?</span><p><strong>문제</strong>관찰한 업무와 판단 지점</p></div>
+        <div><span>≋</span><p><strong>판단</strong>흐름과 기준의 구조화</p></div>
+        <div><span>✓</span><p><strong>결과</strong>구현과 검증 가능한 산출물</p></div>
+        <div><span>↗</span><p><strong>개선</strong>기록과 피드백의 연결</p></div>
+      </aside>
+    </div>
+    <div class="detail-meta">
+      <strong>기술 스택</strong>
+      <span>{{ project.technologies | join(' / ') }}</span>
+      <span>{{ project.maturity }}</span>
+    </div>
+    {% if related_projects %}
+      <div class="related-projects">
+        <h2>관련 프로젝트</h2>
+        {% for related in related_projects %}
+          <a href="{{ url_for('public.project_detail', slug=related.slug) }}">{{ related.title }} {{ arrow() }}</a>
+        {% endfor %}
+      </div>
+    {% endif %}
+  </div>
+</article>
+{% endblock %}

@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="description" content="{% block description %}교육 현장의 문제를 검증 가능한 웹 서비스와 자동화 흐름으로 설계하는 포트폴리오입니다.{% endblock %}">
+    <title>{% block title %}MEMILMUK82{% endblock %}</title>
+    <link rel="icon" href="{{ url_for('static', filename='images/favicon.svg') }}" type="image/svg+xml">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/site.css') }}">
+    <script src="{{ url_for('static', filename='js/site.js') }}" defer></script>
+  </head>
+  <body class="site-body">
+    <a class="skip-link" href="#main-content">본문으로 건너뛰기</a>
+    <header class="site-header" data-site-header>
+      <div class="shell header-inner">
+        <a class="brand" href="{{ url_for('public.home') }}" aria-label="MEMILMUK82 홈">MEMILMUK82</a>
+        <nav class="desktop-nav" aria-label="주요 탐색">
+          <a href="{{ url_for('public.home') }}"{% if current_path == '/' %} aria-current="page"{% endif %}>홈</a>
+          <a href="{{ url_for('public.projects') }}"{% if current_path.startswith('/projects') %} aria-current="page"{% endif %}>프로젝트</a>
+          <a href="{{ url_for('public.activity') }}"{% if current_path == '/activity' %} aria-current="page"{% endif %}>활동</a>
+          <a href="{{ url_for('public.about') }}"{% if current_path == '/about' %} aria-current="page"{% endif %}>소개</a>
+        </nav>
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" aria-label="메뉴 열기" data-menu-toggle>
+          <span class="menu-line"></span>
+          <span class="menu-line"></span>
+          <span class="menu-line"></span>
+        </button>
+      </div>
+      <div class="mobile-menu" id="mobile-menu" hidden data-mobile-menu>
+        <div class="mobile-menu-inner">
+          <p class="mobile-menu-guide">메뉴를 탐색하세요.</p>
+          <p class="mobile-menu-current">현재: <strong>{% block page_name %}페이지{% endblock %}</strong></p>
+          <nav aria-label="모바일 주요 탐색">
+            <a href="{{ url_for('public.home') }}"{% if current_path == '/' %} aria-current="page"{% endif %}>홈</a>
+            <a href="{{ url_for('public.projects') }}"{% if current_path.startswith('/projects') %} aria-current="page"{% endif %}>프로젝트</a>
+            <a href="{{ url_for('public.activity') }}"{% if current_path == '/activity' %} aria-current="page"{% endif %}>활동</a>
+            <a href="{{ url_for('public.about') }}"{% if current_path == '/about' %} aria-current="page"{% endif %}>소개</a>
+          </nav>
+          <p class="mobile-menu-help"><kbd>Esc</kbd> 키로 메뉴 닫기</p>
+        </div>
+      </div>
+    </header>
+
+    <main id="main-content" tabindex="-1">
+      {% block content %}{% endblock %}
+    </main>
+
+    <footer class="site-footer">
+      <div class="shell footer-inner">
+        <div>
+          <p class="brand footer-brand">MEMILMUK82</p>
+          <p class="footer-copy">교육의 문제를 기술의 구조로 바꿉니다.</p>
+        </div>
+        <nav class="footer-nav" aria-label="푸터 탐색">
+          <a href="{{ url_for('public.home') }}">홈</a>
+          <a href="{{ url_for('public.projects') }}">프로젝트</a>
+          <a href="{{ url_for('public.activity') }}">활동</a>
+          <a href="{{ url_for('public.about') }}">소개</a>
+        </nav>
+        {% if github_profile_url %}
+          {% from 'partials/icons.html' import external %}
+          <a class="footer-external" href="{{ github_profile_url }}" target="_blank" rel="noopener noreferrer">GitHub에서 보기 {{ external() }}</a>
+        {% endif %}
+      </div>
+    </footer>
+  </body>
+</html>

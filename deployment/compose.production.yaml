@@ -1,0 +1,15 @@
+services:
+  web:
+    image: ${PORTFOLIO_IMAGE:?Set PORTFOLIO_IMAGE in the environment}
+    restart: unless-stopped
+    ports: !override
+      - "127.0.0.1:8001:8000"
+    environment:
+      PORTFOLIO_EXECUTION_MODE: production
+      PORTFOLIO_SECRET_KEY: ${PORTFOLIO_SECRET_KEY:?Set PORTFOLIO_SECRET_KEY in the environment}
+      PORTFOLIO_GITHUB_URL: ${PORTFOLIO_GITHUB_URL:-}
+    logging:
+      driver: local
+      options:
+        max-size: 10m
+        max-file: "3"

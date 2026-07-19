@@ -1,0 +1,18 @@
+server {
+    listen 80;
+    listen [::]:80;
+    server_name www.memilmuk82.com;
+
+    access_log /var/log/nginx/memilmuk82-portfolio-access.log;
+    error_log /var/log/nginx/memilmuk82-portfolio-error.log;
+
+    location ^~ /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 503;
+    }
+}

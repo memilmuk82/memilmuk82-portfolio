@@ -1,0 +1,19 @@
+{% macro arrow(class_name="icon") -%}
+<svg class="{{ class_name }}" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+  <path d="M5 12h13M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+{%- endmacro %}
+
+{% macro search(class_name="icon") -%}
+<svg class="{{ class_name }}" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+  <circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="1.8"/>
+  <path d="m16 16 4 4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+</svg>
+{%- endmacro %}
+
+{% macro external(class_name="icon") -%}
+<svg class="{{ class_name }}" aria-hidden="true" viewBox="0 0 24 24" fill="none">
+  <path d="M14 5h5v5M19 5l-8 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+</svg>
+{%- endmacro %}
