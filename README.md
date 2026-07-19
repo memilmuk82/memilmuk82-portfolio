@@ -60,7 +60,17 @@ bash scripts/portfolio-agent.sh report
 bash scripts/portfolio-agent.sh stop
 ```
 
-실행 기록은 Git에서 제외된 `.portfolio-agent-runs/`에 저장됩니다. 총괄과 최대 세 하위 에이전트가 인벤토리 감사, 컨테이너 트랙, 서버리스·정적 트랙을 나눠 처리합니다. 스크립트는 `workspace-write` 샌드박스를 사용하며, 외부 콘솔 설정이 필요하면 안내 파일과 이메일 전송 결과를 남기고 중단합니다. 사람이 설정을 완료한 뒤 `resume --confirm-all`을 실행해야 실제 링크 검증과 포트폴리오 통합을 계속합니다.
+`gpt-vercel` 보완만 먼저 실행하려면 범위를 지정합니다.
+
+```bash
+PORTFOLIO_EXECUTION_SCOPE=gpt-vercel \
+PORTFOLIO_MANUAL_CONTACT='name@example.com' \
+bash scripts/portfolio-agent.sh start
+```
+
+실행 기록은 Git에서 제외된 `.portfolio-agent-runs/`에 저장됩니다. 총괄과 최대 세 하위 에이전트가 인벤토리 감사, 컨테이너 트랙, 서버리스·정적 트랙을 나눠 처리합니다. `gpt-manager`는 OCI+SQLite 운영본으로 유지하고, `gpt-vercel`은 이를 참고하는 독립 Vercel+Firebase 구현으로 남은 핵심 기능만 보완합니다. 두 앱의 운영 데이터는 이전하거나 동기화하지 않습니다.
+
+스크립트는 `workspace-write` 샌드박스, 기본 2회 이하의 실패 수정 루프, 변경 영향에 필요한 최소 테스트만 사용합니다. `PORTFOLIO_EXECUTION_SCOPE=gpt-vercel` 또는 `static-sites`로 범위를 좁힐 수 있습니다. 외부 콘솔 설정이 필요하면 안내 파일과 이메일 전송 결과를 남기고 중단합니다. 사람이 설정을 완료한 뒤 `resume --confirm-all`을 실행하면 Codex 세션이 아니라 이전 산출물을 기준으로 새 검증 작업을 시작합니다. `run-state.json`, 필수 결과와 검사 상태가 모두 유효해야 완료로 판정합니다.
 
 ## 환경 변수
 
