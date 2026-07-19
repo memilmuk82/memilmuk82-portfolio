@@ -10,6 +10,9 @@ RUN_ROOT="${PORTFOLIO_RUN_ROOT:-${WORKDIR}/.portfolio-agent-runs}"
 MANUAL_CONTACT="${PORTFOLIO_MANUAL_CONTACT:-}"
 NOTIFY_HOOK="${PORTFOLIO_NOTIFY_HOOK:-}"
 AGENT_THREADS="${PORTFOLIO_AGENT_THREADS:-4}"
+EXECUTION_SCOPE="${PORTFOLIO_EXECUTION_SCOPE:-all}"
+MAX_FIX_LOOPS="${PORTFOLIO_MAX_FIX_LOOPS:-2}"
+TEST_POLICY="essential-only"
 ACTIVE_PID_FILE="${RUN_ROOT}/active.pid"
 ACTIVE_RUN_FILE="${RUN_ROOT}/active-run"
 LATEST_RUN_FILE="${RUN_ROOT}/latest-run"
@@ -34,6 +37,8 @@ usage() {
   PORTFOLIO_MANUAL_CONTACT 수동 설정 안내 이메일 주소
   PORTFOLIO_NOTIFY_HOOK    선택적 메일 전송 실행 파일(본문은 stdin)
   PORTFOLIO_AGENT_THREADS  총괄 포함 동시 에이전트 수(기본값 4, 최대 4)
+  PORTFOLIO_EXECUTION_SCOPE 실행 범위(all, gpt-vercel, static-sites, portfolio)
+  PORTFOLIO_MAX_FIX_LOOPS  실패 시 최소 수정 루프 수(기본값 2, 최대 3)
   PORTFOLIO_CODEX_MODEL    선택적 Codex 모델 이름
   PORTFOLIO_CODEX_PROFILE  선택적 Codex 설정 프로필
 
@@ -42,7 +47,8 @@ usage() {
 
 `start`는 준비·감사·로컬 수정 단계입니다. 외부 콘솔 설정이 필요하면 안내문을
 만들고 `awaiting_manual`로 종료합니다. 설정을 마친 사람이 `resume --confirm-all`
-을 실행하면 새 백그라운드 작업이 실제 링크 검증과 포트폴리오 통합을 재개합니다.
+을 실행하면 이전 산출물을 읽는 새 백그라운드 작업이 실제 링크 검증과 포트폴리오
+통합을 재개합니다. 검사는 변경 범위에 직접 필요한 항목만 실행합니다.
 EOF
 }
 
@@ -91,6 +97,7 @@ show_paths() {
     local run_dir="$1"
     printf '실행 디렉터리: %s\n' "$run_dir"
     printf '진행 상태: %s/state.md\n' "$run_dir"
+    printf '기계 상태: %s/run-state.json\n' "$run_dir"
     printf '실행 로그: %s/codex.log\n' "$run_dir"
     printf '수동 설정: %s/manual-actions.md\n' "$run_dir"
     printf '최종 보고서: %s/final.md\n' "$run_dir"
@@ -110,14 +117,57 @@ manual_gate_is_valid() {
     jq -e '
         .status == "awaiting_manual"
         and (.gate_id | type == "string" and length > 0)
+        and (.resume_command | type == "string" and length > 0)
         and (.actions | type == "array" and length > 0)
+        and (([.actions[].id] | length) == ([.actions[].id] | unique | length))
         and all(.actions[];
             (.id | type == "string" and length > 0)
             and (.project | type == "string" and length > 0)
-            and (.provider | type == "string" and length > 0)
+            and (.provider | IN("firebase", "vercel", "dns", "github", "supabase", "cloudflare", "other"))
             and (.instructions | type == "array" and length > 0)
+            and (.required_environment_variables | type == "array")
+            and (.completion_evidence | type == "array" and length > 0)
         )
     ' "$actions_file" >/dev/null 2>&1
+}
+
+run_state_is_awaiting_manual() {
+    local run_state_file="$1"
+    jq -e '
+        .state == "awaiting_manual"
+        and (
+            (.pending_manual_actions | type == "number" and . > 0)
+            or (.pending_manual_actions | type == "array" and length > 0)
+        )
+    ' "$run_state_file" >/dev/null 2>&1
+}
+
+run_state_is_completed() {
+    local run_dir="$1"
+    local run_state_file="${run_dir}/run-state.json"
+    local required_path required_count required_index
+
+    jq -e '
+        .state == "completed"
+        and (.required_results | type == "array" and length > 0)
+        and (.checks | type == "array")
+        and all(.checks[];
+            (.status == "passed") or (.status == "not_applicable")
+        )
+        and (
+            .pending_manual_actions == 0
+            or (.pending_manual_actions | type == "array" and length == 0)
+        )
+    ' "$run_state_file" >/dev/null 2>&1 || return 1
+
+    required_count="$(jq -r '.required_results | length' "$run_state_file")"
+    for ((required_index = 0; required_index < required_count; required_index += 1)); do
+        required_path="$(jq -r --argjson index "$required_index" '.required_results[$index]' "$run_state_file")"
+        [[ "$required_path" =~ ^[A-Za-z0-9._/-]+$ ]] || return 1
+        [[ "$required_path" != /* ]] || return 1
+        [[ "/$required_path/" != *"/../"* ]] || return 1
+        [ -s "${run_dir}/${required_path}" ] || return 1
+    done
 }
 
 write_manual_email() {
@@ -176,7 +226,9 @@ run_worker() {
     local final_report="${run_dir}/final.md"
     local exit_file="${run_dir}/exit-code"
     local actions_file="${run_dir}/manual-actions.json"
-    local -a codex_args
+    local run_state_file="${run_dir}/run-state.json"
+    local final_state="blocked"
+    local -a global_args exec_args
 
     trap 'cleanup_active_files "$$"' EXIT
 
@@ -184,7 +236,7 @@ run_worker() {
         "$(date --iso-8601=seconds)" >> "$state_file"
     touch "${run_dir}/ready"
 
-    codex_args=(
+    global_args=(
         --cd "$WORKDIR"
         --sandbox workspace-write
         --ask-for-approval never
@@ -193,28 +245,32 @@ run_worker() {
         --config 'agents.job_max_runtime_seconds=2400'
     )
     if [ "$APPS_ROOT" != "$WORKDIR" ]; then
-        codex_args+=(--add-dir "$APPS_ROOT")
+        global_args+=(--add-dir "$APPS_ROOT")
     fi
     if [ -n "${PORTFOLIO_CODEX_MODEL:-}" ]; then
-        codex_args+=(--model "$PORTFOLIO_CODEX_MODEL")
+        global_args+=(--model "$PORTFOLIO_CODEX_MODEL")
     fi
     if [ -n "${PORTFOLIO_CODEX_PROFILE:-}" ]; then
-        codex_args+=(--profile "$PORTFOLIO_CODEX_PROFILE")
+        global_args+=(--profile "$PORTFOLIO_CODEX_PROFILE")
     fi
+    exec_args=(
+        --ephemeral
+        --output-last-message "$final_report"
+    )
 
     set +e
-    codex "${codex_args[@]}" exec \
-        --ephemeral \
-        --output-last-message "$final_report" \
+    codex "${global_args[@]}" exec "${exec_args[@]}" \
         - < "$resolved_prompt" > "$run_log" 2>&1
     local exit_code=$?
     set -e
 
     if [ -s "$actions_file" ]; then
         if manual_gate_is_valid "$actions_file" \
-            && [ -s "${run_dir}/manual-actions.md" ]; then
+            && [ -s "${run_dir}/manual-actions.md" ] \
+            && run_state_is_awaiting_manual "$run_state_file"; then
             touch "${run_dir}/awaiting-manual"
             write_manual_email "$run_dir"
+            final_state="awaiting_manual"
             printf '\n- 수동 게이트: %s\n- 상태: awaiting_manual\n' \
                 "$(date --iso-8601=seconds)" >> "$state_file"
         else
@@ -224,12 +280,24 @@ run_worker() {
         fi
     fi
 
+    if [ "$final_state" != "awaiting_manual" ]; then
+        if [ "$exit_code" -eq 0 ] \
+            && [ -s "$final_report" ] \
+            && run_state_is_completed "$run_dir"; then
+            final_state="completed"
+        else
+            final_state="blocked"
+            [ "$exit_code" -ne 0 ] || exit_code=2
+            printf '\n- 완료 판정 실패: final.md, run-state.json, 필수 결과 또는 검사 상태 확인 필요\n' \
+                >> "$state_file"
+        fi
+    fi
+
     printf '%s\n' "$exit_code" > "$exit_file"
     printf '\n- 워커 종료: %s\n- Codex 종료 코드: %s\n- 상태: %s\n' \
         "$(date --iso-8601=seconds)" \
         "$exit_code" \
-        "$([ -f "${run_dir}/awaiting-manual" ] && printf 'awaiting_manual' \
-            || { [ "$exit_code" -eq 0 ] && printf 'completed' || printf 'blocked'; })" \
+        "$final_state" \
         >> "$state_file"
 
     return "$exit_code"
@@ -242,8 +310,15 @@ preflight() {
     command -v flock >/dev/null 2>&1 || fail "flock을 찾을 수 없습니다."
     command -v nohup >/dev/null 2>&1 || fail "nohup을 찾을 수 없습니다."
     command -v setsid >/dev/null 2>&1 || fail "setsid를 찾을 수 없습니다."
+    command -v sha256sum >/dev/null 2>&1 || fail "sha256sum을 찾을 수 없습니다."
     [[ "$AGENT_THREADS" =~ ^[1-4]$ ]] \
         || fail "PORTFOLIO_AGENT_THREADS는 1~4 정수여야 합니다."
+    [[ "$MAX_FIX_LOOPS" =~ ^[1-3]$ ]] \
+        || fail "PORTFOLIO_MAX_FIX_LOOPS는 1~3 정수여야 합니다."
+    case "$EXECUTION_SCOPE" in
+        all|gpt-vercel|static-sites|portfolio) ;;
+        *) fail "PORTFOLIO_EXECUTION_SCOPE는 all, gpt-vercel, static-sites, portfolio 중 하나여야 합니다." ;;
+    esac
     [ -d "$WORKDIR" ] || fail "작업 디렉터리가 없습니다: $WORKDIR"
     [ -d "$APPS_ROOT" ] || fail "프로젝트 상위 폴더가 없습니다: $APPS_ROOT"
     [ "$APPS_ROOT" != "/" ] || fail "프로젝트 상위 폴더로 /를 사용할 수 없습니다."
@@ -257,7 +332,8 @@ preflight() {
 launch_run() {
     local mode="$1"
     local previous_run="${2:-}"
-    local stamp run_dir resolved_prompt state_file launcher_log pid
+    local stamp run_dir resolved_prompt state_file run_state_file launcher_log pid
+    local prompt_hash workdir_head
 
     preflight
     mkdir -p -- "$RUN_ROOT"
@@ -280,6 +356,7 @@ launch_run() {
     run_dir="$(mktemp -d "${RUN_ROOT}/${stamp}-${mode}-XXXXXX")"
     resolved_prompt="${run_dir}/prompt.md"
     state_file="${run_dir}/state.md"
+    run_state_file="${run_dir}/run-state.json"
     launcher_log="${run_dir}/launcher.log"
     mkdir -p -- "${run_dir}/results" "${run_dir}/link-checks" \
         "${run_dir}/manual-actions"
@@ -290,10 +367,14 @@ launch_run() {
         printf -- '- EXECUTION_MODE: `%s`\n' "$mode"
         printf -- '- RUN_DIR: `%s`\n' "$run_dir"
         printf -- '- STATE_FILE: `%s`\n' "$state_file"
+        printf -- '- RUN_STATE_JSON: `%s`\n' "$run_state_file"
         printf -- '- RUN_LOG: `%s/codex.log`\n' "$run_dir"
         printf -- '- FINAL_REPORT: `%s/final.md`\n' "$run_dir"
         printf -- '- APPS_ROOT: `%s`\n' "$APPS_ROOT"
         printf -- '- MANUAL_CONTACT: `%s`\n' "$MANUAL_CONTACT"
+        printf -- '- EXECUTION_SCOPE: `%s`\n' "$EXECUTION_SCOPE"
+        printf -- '- TEST_POLICY: `%s`\n' "$TEST_POLICY"
+        printf -- '- MAX_FIX_LOOPS: `%s`\n' "$MAX_FIX_LOOPS"
         if [ -n "$previous_run" ]; then
             printf -- '- PREVIOUS_RUN: `%s`\n' "$previous_run"
             printf -- '- PREVIOUS_MANUAL_ACTIONS: `%s/manual-actions.json`\n' \
@@ -301,19 +382,56 @@ launch_run() {
             printf -- '- MANUAL_CONFIRMATION: `%s/manual-confirmation.json`\n' \
                 "$run_dir"
         fi
-        printf '\n진행 단계마다 STATE_FILE을 실제 상태에 맞춰 갱신한다.\n'
+        printf '\n진행 단계마다 STATE_FILE과 RUN_STATE_JSON을 실제 상태에 맞춰 갱신한다.\n'
     } >> "$resolved_prompt"
 
+    prompt_hash="$(sha256sum "$PROMPT_FILE" | awk '{print $1}')"
+    workdir_head="$(git -C "$WORKDIR" rev-parse HEAD)"
+    jq -n \
+        --arg mode "$mode" \
+        --arg scope "$EXECUTION_SCOPE" \
+        --arg test_policy "$TEST_POLICY" \
+        --argjson max_fix_loops "$MAX_FIX_LOOPS" \
+        --arg prompt_sha256 "$prompt_hash" \
+        --arg workdir_head "$workdir_head" \
+        --arg started_at "$(date --iso-8601=seconds)" \
+        '{
+          mode: $mode,
+          scope: $scope,
+          test_policy: $test_policy,
+          max_fix_loops: $max_fix_loops,
+          prompt_sha256: $prompt_sha256,
+          workdir_head: $workdir_head,
+          started_at: $started_at
+        }' > "${run_dir}/run-manifest.json"
+
+    jq -n \
+        --arg updated_at "$(date --iso-8601=seconds)" \
+        '{
+          state: "discovering",
+          required_results: [],
+          checks: [],
+          pending_manual_actions: 0,
+          updated_at: $updated_at
+        }' > "$run_state_file"
+
     if [ -n "$previous_run" ]; then
+        local action_ids manual_actions_hash
         cp -- "${previous_run}/manual-actions.json" \
             "${run_dir}/previous-manual-actions.json"
+        action_ids="$(jq -c '[.actions[].id]' "${previous_run}/manual-actions.json")"
+        manual_actions_hash="$(sha256sum "${previous_run}/manual-actions.json" | awk '{print $1}')"
         jq -n \
             --arg gate_id "$(jq -r '.gate_id' "${previous_run}/manual-actions.json")" \
             --arg confirmed_at "$(date --iso-8601=seconds)" \
             --arg previous_run "$previous_run" \
+            --arg manual_actions_sha256 "$manual_actions_hash" \
+            --argjson action_ids "$action_ids" \
             '{
               gate_id: $gate_id,
               confirmed_all: true,
+              action_ids: $action_ids,
+              manual_actions_sha256: $manual_actions_sha256,
               confirmed_at: $confirmed_at,
               previous_run: $previous_run
             }' > "${run_dir}/manual-confirmation.json"
@@ -323,6 +441,9 @@ launch_run() {
         printf '# 포트폴리오 개선 진행 상태\n\n'
         printf -- '- 시작 요청: %s\n' "$(date --iso-8601=seconds)"
         printf -- '- 실행 모드: %s\n' "$mode"
+        printf -- '- 실행 범위: %s\n' "$EXECUTION_SCOPE"
+        printf -- '- 테스트 정책: %s\n' "$TEST_POLICY"
+        printf -- '- 최대 수정 루프: %s\n' "$MAX_FIX_LOOPS"
         printf -- '- 상태: 워커 시작 중\n'
         printf -- '- 작업 디렉터리: `%s`\n' "$WORKDIR"
         printf -- '- 프로젝트 루트: `%s`\n' "$APPS_ROOT"
