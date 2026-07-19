@@ -1,4 +1,6 @@
-# 56개 프로젝트 게시 준비 마스터 프롬프트
+# 56개 프로젝트 게시 준비 마스터 프롬프트 (이전 버전)
+
+> 현재 멀티에이전트·수동 설정·재개 기준은 `automation/portfolio-improvement-prompt.md`와 `scripts/portfolio-agent.sh`를 사용합니다. 이 문서는 과거 프로젝트별 판정 근거를 확인하기 위한 참고 자료입니다.
 
 ## 목표
 
