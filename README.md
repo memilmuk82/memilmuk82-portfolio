@@ -12,7 +12,7 @@
 - `/healthz`: 외부 의존성이 없는 상태 확인
 - 사용자 친화적인 404·500 오류 화면
 
-프로젝트 화면의 기준 데이터는 `app/content/project_inventory.json`입니다. `/opt/apps`의 독립 저장소 56개를 서브도메인 웹앱 9개(PostgreSQL 3, SQLite 5, 무DB 1), 정적 사이트 7개, 소스·프로젝트 소개 28개, 비공개·제외 12개로 빠짐없이 기록합니다. `app/content/projects.json`은 그중 상세 사례 페이지가 있는 네 프로젝트의 서술형 콘텐츠를 담당합니다. 확인된 운영 URL·GitHub 저장소·산출물 URL만 용도별 HTTPS 필드로 제공하며, 비공개·제외 항목에는 외부 링크를 제공하지 않습니다.
+프로젝트 화면의 기준 데이터는 `app/content/project_inventory.json`입니다. GitHub 계정의 57개 저장소 중 포트폴리오 자체를 제외한 56개 이름을 빠짐없이 기록합니다. 기존 `서브도메인·정적·소스·제외` 수치는 이전 분류이며, 개선 에이전트가 실제 코드와 배포 근거를 확인해 `Docker + PostgreSQL`, `Docker + SQLite`, `Vercel + Supabase`, `Vercel 단일`, `GitHub Pages`와 필요한 예외 방식으로 다시 분류하도록 구성했습니다. `app/content/projects.json`은 상세 사례 페이지가 있는 프로젝트의 서술형 콘텐츠를 담당합니다. 실제 확인이 끝난 운영 URL·GitHub 저장소·산출물 URL만 용도별 HTTPS 필드로 제공합니다.
 
 교육 변화는 2020—2021 `프로그래밍과 웹의 기초`, 2022—2023 `서버·API·데이터로 확장`, 2024—2025 `서비스와 에듀테크`, 2026 `AI 활용에서 설계·검증으로`의 네 시기로만 설명합니다. 근거 없는 학교명, 성과·경력 수치나 연도별 사건은 추가하지 않습니다.
 
@@ -45,6 +45,22 @@ make check
 ```
 
 CSS는 `app/static/css/input.css`를 Tailwind CLI로 빌드해 `app/static/css/site.css`로 제공합니다. 런타임은 외부 CDN과 외부 폰트 요청에 의존하지 않습니다. JavaScript가 없을 때도 핵심 링크와 GET 필터가 동작하며, JavaScript는 모바일 메뉴와 필터 상태 안내만 향상합니다.
+
+## 포트폴리오 개선 에이전트
+
+`automation/portfolio-improvement-prompt.md`에는 2020~2026 수업·연수 기록, GitHub 프로젝트 전시 기준, 2026 디자인 방향과 검증 조건을 모았습니다. 다음 명령으로 Codex 비대화형 작업을 백그라운드에서 시작하고 상태·로그·보고서를 확인할 수 있습니다.
+
+```bash
+PORTFOLIO_MANUAL_CONTACT='name@example.com' bash scripts/portfolio-agent.sh start
+bash scripts/portfolio-agent.sh status
+bash scripts/portfolio-agent.sh gates
+bash scripts/portfolio-agent.sh resume --confirm-all
+bash scripts/portfolio-agent.sh logs
+bash scripts/portfolio-agent.sh report
+bash scripts/portfolio-agent.sh stop
+```
+
+실행 기록은 Git에서 제외된 `.portfolio-agent-runs/`에 저장됩니다. 총괄과 최대 세 하위 에이전트가 인벤토리 감사, 컨테이너 트랙, 서버리스·정적 트랙을 나눠 처리합니다. 스크립트는 `workspace-write` 샌드박스를 사용하며, 외부 콘솔 설정이 필요하면 안내 파일과 이메일 전송 결과를 남기고 중단합니다. 사람이 설정을 완료한 뒤 `resume --confirm-all`을 실행해야 실제 링크 검증과 포트폴리오 통합을 계속합니다.
 
 ## 환경 변수
 
