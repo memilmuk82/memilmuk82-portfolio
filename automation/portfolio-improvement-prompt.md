@@ -307,6 +307,16 @@ Supabase 안내에는 해당되는 경우 다음을 포함한다.
 
 화면의 `Docker + PostgreSQL`, `Vercel + Supabase`, `Docker + SQLite`, `Vercel 단일`, `GitHub Pages` 표시는 두 값을 조합해 만든다.
 
+### 소유자가 확정한 호스팅 우선순위
+
+아래 결정은 자동 추천보다 우선한다. 코드 근거가 달라져 실행이 불가능한 경우에만 `manual-actions`에 차이와 대안을 적고 기다린다.
+
+- `junior-college-admission`은 OCI의 Docker + PostgreSQL 운영을 유지한다.
+- `gpt-manager`는 OCI의 Docker + SQLite 운영을 유지한다. 현재 DB 컨테이너 없이 웹 컨테이너 하나와 SQLite 영속 볼륨만 사용한다. SQLite 백업·복원, 관리자 테스트 실행, OAuth, 기존 암호화 데이터 이전 비용을 감수하면서 Vercel + Supabase로 바꾸지 않는다. 소유자가 이 결정을 다시 열기 전에는 Supabase 수동 작업도 만들지 않는다.
+- `ai-teaching-deck`은 정적 Vite 결과를 GitHub Pages로 옮기는 것을 우선한다. Pages의 빌드·다운로드·이미지 fallback·custom domain 검증을 통과할 수 없을 때만 Vercel 정적 배포를 대안으로 사용하며 OCI 컨테이너를 유지 대상으로 삼지 않는다.
+- 포트폴리오 본체는 Flask/Jinja 콘텐츠를 빌드 시 정적 HTML로 생성해 GitHub Pages에 게시하는 방향을 우선한다. 검색·필터·상세 경로·404·접근성·canonical URL을 정적 환경에서 보존할 수 없을 때만 OCI 운영을 임시 대안으로 둔다.
+- OCI의 기본 잔류 범위는 `junior-college-admission`의 web+PostgreSQL과 `gpt-manager` web이다. 공용 reverse proxy는 기존 호스트 구성을 재사용하고 프로젝트별 프록시를 중복 기동하지 않는다.
+
 ### 현재 코드 감사에서 확인한 분류 시작점
 
 아래 목록은 기존 인벤토리의 하드코딩보다 우선하는 조사 시작점이다. 각 저장소를 다시 읽은 근거가 다르면 결과 JSON에 이유를 기록하고 조정한다.
