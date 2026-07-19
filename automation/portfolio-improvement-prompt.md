@@ -19,7 +19,8 @@
 4. `/opt/apps`에 인벤토리 대상 프로젝트가 있다면 이번 작업 범위에 포함한다. 읽기 감사 후 담당 트랙이 배정되고 worktree가 깨끗한 저장소만 게시 준비에 필요한 최소 파일을 수정한다. 인벤토리에 없는 저장소는 수정하지 않는다.
 5. GitHub 또는 외부 URL은 현재 코드·README·설정에서 확인된 것만 사용한다. URL을 추측하지 않는다.
 6. 질문을 기다리느라 중단하지 않는다. 아래 확정 기준 안에서 보수적으로 판단하고, 판단 근거와 제약을 최종 보고서에 남긴다.
-7. 실행 프롬프트 끝에 `RUN_DIR`, `STATE_FILE`, `RUN_LOG`, `FINAL_REPORT`가 제공되면 실제 진행 단계마다 `STATE_FILE`을 갱신한다.
+7. 실행 프롬프트 끝에 `RUN_DIR`, `STATE_FILE`, `RUN_STATE_JSON`, `RUN_LOG`, `FINAL_REPORT`가 제공되면 실제 진행 단계마다 사람이 읽는 `STATE_FILE`과 기계 판정용 `RUN_STATE_JSON`을 함께 갱신한다.
+8. `EXECUTION_SCOPE`가 `all`이 아니면 다음 범위만 수정하고 나머지는 읽기 근거로만 사용한다: `gpt-vercel`은 해당 저장소와 포트폴리오의 관련 설명, `static-sites`는 포트폴리오 본체와 `ai-teaching-deck`, `portfolio`는 포트폴리오 저장소 내부만 해당한다.
 
 ## 멀티에이전트 하네스와 루프 — 필수
 
@@ -40,6 +41,7 @@
    - `vercel-supabase`, `vercel-firebase`, `vercel-single`, `github-pages`, `external-platform`을 담당한다.
    - Vercel 진입점, 정적 빌드 경로, GitHub Pages workflow, 환경 변수 이름과 수동 설정을 준비한다.
    - Supabase·Vercel·GitHub Pages 콘솔 작업이 필요하면 수행했다고 가정하지 않고 수동 게이트에 등록한다.
+   - `gpt-vercel`은 `gpt-manager`를 읽기 전용 기준으로 비교하되 writer는 `gpt-vercel` 하나만 가진다. 기존 Vercel+Firebase 구현을 유지하며 아래의 전용 완성 계약만 수행한다.
 
 루트 에이전트는 세 결과를 모두 기다린 후에만 포트폴리오 JSON·화면·문서를 통합한다. 포트폴리오 저장소의 통합 파일은 루트만 수정한다.
 
@@ -63,11 +65,17 @@
 `RUN_DIR` 아래에 비밀값을 포함하지 않는 다음 파일을 유지한다.
 
 - `deployment-plan.json`: 56개 프로젝트의 근거, 방식, 현재 상태, 목표 URL, 담당 트랙
+- `writer-map.json`: 저장소별 단일 writer와 읽기 전용 reviewer. 같은 저장소에 writer가 둘 이상이면 구현 전에 차단
 - `results/<slug>.json`: 프로젝트별 수정 파일, 검사, 차단 사항, 수동 작업, 링크 검증 결과
+- `results/gpt-vercel-feature-gap.md`: `gpt-manager` 대비 `이미 구현됨 / 이번에 구현 / 서버리스 제약으로 보류` 기능표
+- `results/gpt-vercel-parity.json`: 기능별 `equivalent`, `adapted_for_serverless`, `intentionally_not_ported`, `blocked` 상태와 근거
 - `manual-actions.json`: 사람이 수행해야 하는 작업의 구조화 목록
 - `manual-actions.md`: 이메일과 터미널에서 읽을 수 있는 같은 내용의 한국어 안내
 - `state.md`: 현재 단계와 완료·실패 수
+- `run-state.json`: 하네스가 완료 여부를 판정하는 단일 기계 상태
 - `final.md`: 통합 결과
+
+`run-state.json`은 최소한 `state`, `required_results`, `checks`, `pending_manual_actions`, `updated_at`을 가진다. `state`는 `discovering`, `planning`, `preparing`, `validating_local`, `awaiting_manual`, `verifying_external`, `integrating_portfolio`, `qa`, `completed`, `blocked` 중 하나다. 완료 시 필수 결과 파일과 검사의 실제 상태를 기록하며, 단순히 최종 문장을 출력했다는 이유로 `completed`를 쓰지 않는다.
 
 `deployment-plan.json`의 각 항목은 최소한 다음 값을 가진다.
 
@@ -85,15 +93,17 @@
 
 ### 제한된 수정 루프
 
-각 프로젝트는 최대 세 번만 `검사 → 최소 수정 → 테스트 → 판정` 루프를 돈다.
+각 프로젝트는 실행 정보의 `MAX_FIX_LOOPS` 이내에서만 `근거 확인 → 최소 수정 → 관련 검사 → 판정` 루프를 돈다. 기본값은 2, 허용 범위는 1~3이다.
 
-- 1회: 실제 런타임과 배포 계약 정합성
-- 2회: 실패한 테스트·빌드·링크의 최소 수정
-- 3회: 독립 재검증
+- 첫 검사에서 통과하면 즉시 종료하며 횟수를 채우기 위해 다시 실행하지 않는다.
+- 다음 루프는 실제 실패가 있고 최소 수정으로 해결할 수 있을 때만 수행한다.
+- 같은 실패 fingerprint와 같은 diff가 두 번 반복되면 더 넓게 고치지 말고 `blocked`로 기록한다.
+- 읽기 감사, 미수정 저장소, `repository-only`, `excluded`에는 빌드·테스트 루프를 실행하지 않는다.
+- 한 저장소의 통합 writer는 한 명뿐이며 다른 에이전트는 읽기 검토만 한다.
 
-세 번 뒤에도 실패하면 변경을 확대하지 말고 `blocked`로 기록한다. 무한 재시도, 플랫폼 전환 반복, 무관한 리팩터링을 하지 않는다.
+루프 한도 뒤에도 실패하면 변경을 확대하지 말고 `blocked`로 기록한다. 무한 재시도, 플랫폼 전환 반복, 무관한 리팩터링을 하지 않는다.
 
-dirty worktree가 있는 저장소는 변경하지 않고 `blocked`로 기록한다. 사용자가 명시적으로 허용한 경우에도 기존 diff를 먼저 기록하고 그 파일을 덮어쓰지 않는 변경만 수행한다.
+dirty worktree가 있는 저장소는 변경하지 않고 `blocked`로 기록한다. 사용자가 명시적으로 허용한 경우에도 기존 diff를 먼저 기록하고 그 파일을 덮어쓰지 않는 변경만 수행한다. 각 writer는 시작 commit SHA, 시작 dirty diff hash, 준비 후 diff hash와 변경 파일을 결과 JSON에 기록한다. `resume`에서는 이전 실행이 기록한 준비 후 diff와 정확히 같은 변경만 하네스 소유로 인정한다. 새 사용자 변경이 섞였으면 해당 저장소만 차단하고 reset·stash·clean하지 않는다.
 
 ## 수동 설정·이메일·재개 게이트
 
@@ -154,7 +164,7 @@ Supabase 안내에는 해당되는 경우 다음을 포함한다.
   - `BardAPI_test2`, `OpenAPI_project`, `ToDo`, `skel_web_env`, `chatbot`
 - `whalespace-training`, `2026-python-workbook`은 공개 자료를 기반으로 만들었으며 소유자가 공개와 포트폴리오 활용을 허용했다.
 - 위 확인은 `외부 보안·법률 검증 완료`가 아니라 `소유자 확인으로 공개 허용`이라는 뜻이다. 화면에서 과장된 검증 문구를 만들지 않는다.
-- Notion은 내부 참고 자료일 뿐이다. Notion URL, 페이지 ID, 원문, 캡처, 첨부 파일, 내부 메모를 공개 코드·JSON·HTML·문서에 넣지 않는다.
+- Notion은 내부 참고 자료일 뿐이다. Notion URL, 페이지 ID, 원문, 캡처, 첨부 파일, 내부 메모를 공개 코드·JSON·HTML·문서뿐 아니라 `RUN_DIR`, 로그, 이메일, 결과 JSON, 최종 보고서에도 넣지 않는다.
 - 활동 출처를 표시해야 한다면 `회고 기반 정리`, `이수 기록 확인`, `GitHub 저장소 확인`처럼 일반적인 설명만 사용한다.
 - 실제 학생, 계정, 상담, 예약, 이메일, 연락처, 학교 내부 데이터는 표시하지 않는다.
 
@@ -230,7 +240,9 @@ Supabase 안내에는 해당되는 경우 다음을 포함한다.
 - 수업: HTML form과 Flask request
 - 수업: list CRUD → dict CRUD → ID CRUD → SQLite 영속화
 - 수업: README와 프로젝트 문서 작성, 개인 웹 서비스 프로젝트
+- 연수·강의 연결: 생성형 AI 프롬프트와 SEN GPT, Google Workspace for Education Plus, SEN스쿨·웨일스페이스 활용. 세부 강의안이나 내부 자료를 옮기지 않고 주제 수준으로만 표시한다.
 - 연결 저장소 후보: `hello_flask`, `python_flask_2026`, `flask-template`, `2026-python-workbook`
+- 연수·강의 연결 저장소 후보: `ai-teaching-deck`, `senschool-google-edu-plus`, `whalespace-training`
 
 ## 프로젝트 전시 구조
 
@@ -262,6 +274,7 @@ Supabase 안내에는 해당되는 경우 다음을 포함한다.
 
 - `DjangoBlog`만 Django 블로그 대표 웹앱으로 전시·배포한다.
 - `do_it_django`, `DjangoBlog2`는 같은 학습 흐름의 소스 저장소로 남기고 별도 웹앱으로 배포하지 않는다.
+- `DjangoBlog`의 대표 전시는 OCI 컨테이너 추가를 뜻하지 않는다. 검증된 별도 배포가 없으면 저장소 대표 링크만 제공한다.
 - `noom`이 실제 구현을 대표한다.
 - `CloneCoding_Noom`은 초기 방 입장 실습, `noom1`은 중복·초기 골격으로 분류한다.
 
@@ -298,7 +311,7 @@ Supabase 안내에는 해당되는 경우 다음을 포함한다.
 - `repository-only`: 학습 소스, CLI·배치, 중복 프로젝트
 - `excluded`: 내용 없음, 미구현, 중복 스캐폴드
 
-`deployment_method`와 `deployment_status`를 분리한다. 상태는 `planned`, `prepared`, `awaiting_manual`, `deployed_unverified`, `verified`, `blocked`, `repository_only`, `excluded` 중 하나다. 목표 목적지가 있다는 이유만으로 `verified`나 `live_url`을 부여하지 않는다.
+현재 상태와 목표를 한 필드에 섞지 않는다. 각 항목에는 `current_deployment_method`, `target_deployment_method`, `migration_status`, `deployment_status`를 둔다. 상태는 `planned`, `prepared`, `awaiting_manual`, `deployed_unverified`, `verified`, `blocked`, `repository_only`, `excluded` 중 하나다. 목표 목적지가 있다는 이유만으로 `verified`나 `live_url`을 부여하지 않는다.
 
 가능하면 저장 모델은 조합 가능한 두 축도 함께 둔다.
 
@@ -313,17 +326,22 @@ Supabase 안내에는 해당되는 경우 다음을 포함한다.
 
 - `junior-college-admission`은 OCI의 Docker + PostgreSQL 운영을 유지한다.
 - `gpt-manager`는 OCI의 Docker + SQLite 운영을 유지한다. 현재 DB 컨테이너 없이 웹 컨테이너 하나와 SQLite 영속 볼륨만 사용한다. SQLite 백업·복원, 관리자 테스트 실행, OAuth, 기존 암호화 데이터 이전 비용을 감수하면서 Vercel + Supabase로 바꾸지 않는다. 소유자가 이 결정을 다시 열기 전에는 Supabase 수동 작업도 만들지 않는다.
+- `gpt-vercel`은 `gpt-manager`의 운영 대체가 아니라 같은 요구를 Vercel + Firebase로 구현하는 독립 버전이다. 기존 Firebase Auth·Firestore·Vercel 구조를 유지하며 남은 핵심 기능만 완성한다. 두 앱의 운영 DB를 연결하거나 SQLite 데이터를 자동 이전·동기화하지 않는다.
 - `ai-teaching-deck`은 정적 Vite 결과를 GitHub Pages로 옮기는 것을 우선한다. Pages의 빌드·다운로드·이미지 fallback·custom domain 검증을 통과할 수 없을 때만 Vercel 정적 배포를 대안으로 사용하며 OCI 컨테이너를 유지 대상으로 삼지 않는다.
 - 포트폴리오 본체는 Flask/Jinja 콘텐츠를 빌드 시 정적 HTML로 생성해 GitHub Pages에 게시하는 방향을 우선한다. 검색·필터·상세 경로·404·접근성·canonical URL을 정적 환경에서 보존할 수 없을 때만 OCI 운영을 임시 대안으로 둔다.
 - OCI의 기본 잔류 범위는 `junior-college-admission`의 web+PostgreSQL과 `gpt-manager` web이다. 공용 reverse proxy는 기존 호스트 구성을 재사용하고 프로젝트별 프록시를 중복 기동하지 않는다.
+- GitHub Pages 전환과 실제 HTTPS 확인이 끝나기 전에는 기존 `ai-teaching-deck` 컨테이너를 자동 중단하거나 삭제하지 않는다.
 
 ### 현재 코드 감사에서 확인한 분류 시작점
 
-아래 목록은 기존 인벤토리의 하드코딩보다 우선하는 조사 시작점이다. 각 저장소를 다시 읽은 근거가 다르면 결과 JSON에 이유를 기록하고 조정한다.
+아래 목록은 기존 인벤토리의 하드코딩보다 우선하는 조사 시작점이다. `현재 코드`와 `목표 배포`를 구분하며, 각 저장소를 다시 읽은 근거가 다르면 결과 JSON에 이유를 기록하고 조정한다.
 
-- `docker-postgresql` — `junior-college-admission`, `nodebird`, `nodebird-api`, `DjangoBlog`, `ToDo`
-- `docker-sqlite` — `gpt-manager`, `hello_flask`
-- `docker-nodb` — `noom`, `ai-teaching-deck`
+- 현재 Docker + PostgreSQL 근거 있음 — `junior-college-admission`, `DjangoBlog`
+- 현재 Docker + SQLite 근거 있음 — `gpt-manager`
+- 현재 Docker 정적 Nginx 근거 있음 — `ai-teaching-deck`; 목표는 GitHub Pages
+- PostgreSQL 백엔드 코드가 있지만 Docker 배포 미구성 — `nodebird`, `nodebird-api`, `ToDo`
+- SQLite 백엔드 코드가 있지만 Docker 배포 미구성 — `hello_flask`
+- Node.js·Socket.IO 앱이지만 Docker 배포 미구성 — `noom`
 - `vercel-single` — `demo-app`, `fastapi_crud`, `My_Dashboard`, `RestfulServer`, `Router_express.js`
 - `vercel-firebase` — `gpt-vercel`, `todo_260613`, `chatbot`
 - `github-pages` — `2025_AIEdutech_Seoul`, `draw`, `memilmuk82-tour_Jap_Webapp`, `senschool-google-edu-plus`, `test_260613`, `tourism-japanese-ai-quiz`
@@ -342,13 +360,74 @@ Supabase 안내에는 해당되는 경우 다음을 포함한다.
 추가 정정 근거:
 
 - `DjangoBlog`는 로컬 기본값만 보면 SQLite지만 Docker Compose 운영 구성은 PostgreSQL이다.
-- `ToDo`의 SQLite는 테스트용이며 실제 실행 DB는 PostgreSQL이다.
+- `ToDo`의 SQLite는 테스트용이며 실제 실행 DB는 PostgreSQL이지만 Dockerfile·Compose는 확인되지 않았다.
 - `ai-teaching-deck`은 정적 콘텐츠지만 현재 운영 근거는 Docker·Nginx·OCI와 custom URL이다.
 - `BardAPI_test2`, `OpenAPI_project`는 표준 출력 기반 실험이므로 Vercel 앱으로 만들지 않는다.
 - `nodecat`은 세션과 외부 NodeBird API 비밀값에 의존하므로 저장소 소개가 맞다.
 - `curriculum-subject-overlap-check`는 현재 공개 허용된 저장소이지만 서비스 배포 대상은 아니다.
 
 현재 인벤토리의 `do_it_django`는 `subdomain`이지만 사용자 확정은 `repository-only`이므로 명시적 수정 대상이다.
+
+## `gpt-vercel` 전용 완성 계약
+
+`gpt-vercel`은 빈 골격으로 가정하지 않는다. 현재 `main`에는 Vercel Python Runtime, Flask/Jinja, Firebase Auth session cookie, Firestore 서비스 계층, 예약·사용 기록·Gemini 프롬프트 점검·사용자 승인 흐름이 구현되어 있고 운영 URL 기록도 있다. README의 완료 문구만 신뢰하지 말고 실제 route, service, rule, test와 배포 smoke 근거를 대조한다.
+
+### 비교와 수정 순서
+
+1. `gpt-manager@master`는 기능 의미를 확인하는 읽기 전용 기준으로만 사용한다.
+2. `gpt-vercel@main`에서 `구현됨 / 이번에 구현 / 서버리스 제약으로 보류` 기능표를 먼저 작성한다.
+3. 이미 구현된 기능은 재작성하지 않고 호환성과 보안 경계만 확인한다.
+4. 아래 P0를 한 항목씩 최소 수정하고 해당 기능의 관련 검사만 실행한다.
+5. P0가 모두 통과하고 수동 게이트가 없을 때만 P1에서 실제 사용 가치가 높은 항목 최대 두 개를 고른다. 기능 수를 채우기 위해 구현하지 않는다.
+
+### 유지할 현재 구조
+
+- Firebase Web SDK 로그인·가입 → ID token → Firebase Admin session cookie
+- Firebase auth cookie와 Flask flash/session cookie 분리
+- Firestore의 `users`, `aiResources`, `reservations`, `usageLogs`, `userApiKeys`, `promptReviews`
+- 예약 충돌을 막는 Firestore transaction과 사용자 소유권 검사
+- 사용자별 Gemini API key의 서버 측 암호화 저장과 마스킹
+- Flask/Jinja SSR, Vercel Python entrypoint, `/healthz`, 이용 안내·약관·개인정보 문서
+- 관리자·보조관리자·일반 사용자 역할과 승인·대기·정지 상태
+
+### P0 — 운영 마감에 필요한 최소 범위
+
+- cookie 인증을 사용하는 상태 변경 POST에 CSRF 방어를 적용하고 정상 요청과 거부 요청을 각각 검증한다.
+- production에서 `APP_ENCRYPTION_KEY`, Firebase Admin 자격 증명, 안전한 `SECRET_KEY`가 없으면 조용히 fallback하지 말고 시작 단계에서 실패한다.
+- `E2E_TEST_MODE`와 모든 `E2E_TEST_*` 우회 설정이 production에서 활성화될 수 없게 한다.
+- 관리자가 `aiResources`를 생성·수정·비활성화할 수 있는 최소 CRUD 또는 동등한 안전한 seed 절차를 제공한다. Firestore Console 수동 입력만이 정상 운영 절차가 되지 않게 한다.
+- `/settings/api-key/test`는 단순 복호화 확인이 아니라 제한된 실제 Gemini 연결 검증으로 동작하게 하되 키 값·응답 원문을 로그에 남기지 않는다.
+- 기존 예약 생성·충돌·완료 → 사용 기록 작성 → Gemini 프롬프트 점검 흐름이 깨지지 않게 한다.
+- README와 전환 문서에는 실제 확인한 상태만 기록하고 `gpt-manager`와의 관계, 구현·보류 항목, 필요한 수동 설정을 갱신한다.
+
+### P1 — P0 뒤에만 검토
+
+- 월간 예약 보기와 최소 검색·상태 필터
+- 프롬프트 점검 결과 검색 또는 Markdown 다운로드
+
+개인 프로필, 월간 KPI, 다중 AI provider, 대규모 통계·보고서, 감사 로그 전체 UI는 실제 요구가 확인되기 전에는 구현하지 않는다.
+
+### 이식하지 않을 항목
+
+- SQLite 파일·최근 백업 20개·백업 복원·다운로드 UI
+- SQLAlchemy·Alembic과 SQLite 데이터의 자동 이전·양방향 동기화
+- Docker Compose, Gunicorn, Nginx, OCI 운영 파일
+- 관리자 HTTP 요청 안에서 서버 전체 pytest를 실행하는 기능
+- 자유 채팅형 챗봇, 공용 계정 ID·비밀번호 저장, 학생 개인정보
+
+### Firebase·Vercel 수동 게이트
+
+코드로 실제 상태를 확인할 수 없거나 콘솔 변경이 필요할 때만 `manual-actions`를 만든다. 기존 설정이 이미 검증되었다면 같은 작업을 다시 요구하지 않는다.
+
+- Firebase Authentication의 Google 또는 실제 사용하는 provider 활성화
+- Authorized domains에 Vercel 기본 도메인과 custom domain 등록
+- Firestore DB·region, client 전면 deny를 유지하는 rules와 필요한 index 배포
+- Firebase Web 설정과 Admin 자격 증명의 Preview·Production Vercel 환경 변수 분리
+- `ALLOWED_GOOGLE_DOMAIN`, `ADMIN_EMAILS`, `APP_ENCRYPTION_KEY`와 cookie 환경 변수 이름 확인
+- production에서 `E2E_TEST_MODE=false`이고 테스트 우회 변수가 등록되지 않았는지 확인
+- 실제 허용 계정 한 개로 로그인·승인·예약·사용 기록·Gemini key 검증을 수행하는 최소 수동 smoke
+
+비밀값, service account JSON, API key, session cookie는 이메일·로그·결과 파일에 쓰지 않는다. `gpt-manager`의 운영 데이터는 읽거나 복사하지 않는다.
 
 ## 실제 링크 검증과 포트폴리오 반영
 
@@ -377,10 +456,29 @@ Supabase 안내에는 해당되는 경우 다음을 포함한다.
 
 인벤토리에는 실제 구조와 충돌하지 않는 범위에서 다음 필드를 도입한다.
 
-- `deployment_method`, `deployment_status`
+- `current_deployment_method`, `target_deployment_method`, `migration_status`, `deployment_status`
 - `related_years`, `relationship`
 - `repository_url`, 확인된 경우에만 `live_url`·`artifact_url`
 - `verification_status`, `verified_at`, `verification_note`
+
+## GitHub Pages 정적 배포 계약
+
+### 포트폴리오 본체
+
+- Flask/Jinja는 빌드 시 콘텐츠를 검증하고 정적 HTML을 생성하는 도구로 사용할 수 있지만 GitHub Pages에서 Python 서버가 실행되는 것처럼 구성하지 않는다.
+- 정적 출력 디렉터리와 한 개의 재현 가능한 build 명령을 둔다.
+- 최소 출력은 `/index.html`, `/projects/index.html`, 공개 상세별 `/projects/<slug>/index.html`, `/activity/index.html`, `/about/index.html`, `/404.html`, 정적 CSS·JS·이미지다.
+- JavaScript가 없어도 전체 아카이브와 상세 페이지를 읽고 저장소·실제 결과 링크로 이동할 수 있어야 한다. 검색·필터는 query string과 History API를 사용하는 점진적 향상 기능이어도 된다.
+- Pages에서는 `/healthz`를 완료 조건으로 요구하지 않는다. 루트, 대표 상세, 404, CSS·JS asset의 정적 존재와 배포 응답을 확인한다. `/healthz`는 OCI Flask fallback에서만 유지한다.
+- GitHub Actions는 정적 생성·필수 검사·Pages artifact 업로드만 담당하고 빌드 결과를 소스 브랜치에 반복 커밋하지 않는다.
+- `www.memilmuk82.com` custom domain, apex 연결, HTTPS를 수동 게이트로 제공한다. Pages가 기본안이면 Nginx 예제는 OCI fallback 문서로 내린다.
+
+### `ai-teaching-deck`
+
+- `npm run validate`와 `npm run build`가 만든 Vite `dist/`를 GitHub Pages로 게시한다.
+- project URL이면 Vite base path를 저장소 경로에 맞추고, `ai-teaching.memilmuk82.com`을 직접 연결하면 root base를 사용할 수 있다. 한 배포에서 두 경로를 모두 된다고 추정하지 않고 실제 선택에 맞춘다.
+- hash slide route, 공개 curriculum download, 키보드 이동, 실제 이미지 또는 정적 placeholder를 확인한다. Nginx가 처리하던 누락 WebP fallback을 Pages에서 404가 나지 않는 정적 자산 또는 프론트 fallback으로 바꾼다.
+- Pages 빌드·핵심 기능·custom domain이 검증되지 않을 때만 Vercel 정적 배포를 대안으로 준비한다.
 
 ## 2026 디자인 방향
 
@@ -475,29 +573,40 @@ Supabase 안내에는 해당되는 경우 다음을 포함한다.
 
 ## 필수 검증
 
-저장소에 설치된 도구와 잠금 파일을 존중해 가능한 검사를 모두 실행한다.
+검사는 `변경한 동작을 증명하는 최소 범위`만 실행한다. 가능한 검사를 모두 돌리거나 횟수를 채우기 위해 같은 검사를 반복하지 않는다. 실행하지 않은 검사는 `미실행`과 이유를 기록하며 통과로 꾸미지 않는다.
 
-```bash
-python -m json.tool app/content/project_inventory.json
-uv run ruff check .
-uv run ruff format --check .
-uv run pytest -q
-npm run css:build
-```
+공통 원칙:
 
-필요하면 프로젝트의 `make check`를 사용한다. 브라우저를 실행할 수 있으면 다음을 검수한다.
+- 미수정 저장소, 읽기 감사, `repository-only`, `excluded`에는 테스트를 실행하지 않는다.
+- 새 테스트 프레임워크, 커버리지 목표, 전체 저장소 일괄 빌드, 부하·침투·대량 synthetic data 테스트를 추가하지 않는다.
+- 첫 관련 검사 통과 시 해당 루프를 즉시 끝낸다. 실패하면 원인에 직접 관련된 최소 수정 후 실패한 검사만 다시 실행한다.
+- 전체 test suite는 테스트 수가 작거나 공통 설정·스키마·라우팅을 바꿔 부분 검사로 회귀 범위를 보장할 수 없을 때만 한 번 실행한다.
+- 네트워크 검사는 제한 시간과 최대 한 번의 재시도를 사용한다.
 
-- 1440×1100 데스크톱
-- 390×844 모바일
-- 360×800 소형 모바일
-- 홈, 프로젝트, 필터 빈 결과, 활동, 상세, 소개, 404
-- 가로 오버플로 0
-- 긴 저장소 이름 잘림 없음
-- 키보드 메뉴·필터·포커스
-- reduced motion
-- 밝은·어두운 환경을 지원한다면 양쪽 색 대비
+`gpt-vercel`을 수정한 경우:
 
-브라우저나 네트워크 제약이 있으면 Flask 테스트 클라이언트와 정적 검증으로 대체하고, 실행하지 못한 검사를 통과로 기록하지 않는다.
+- Python 구문·모듈 import와 `api.index:app` 진입점 로딩
+- 기존 pytest가 작으므로 `uv run pytest -q` 한 번과 새 P0 회귀 테스트
+- 미인증 핵심 경로 차단, 승인·정지·역할, 소유권, 예약 충돌 transaction, API key 암호화·마스킹·삭제, 새 CSRF·fail-fast 동작
+- 기존 Playwright 핵심 3개는 인증·템플릿·브라우저 흐름을 실제로 바꾼 경우에만 한 번 실행한다. 브라우저를 새로 설치하기 위해 작업을 중단하지 않는다.
+- Firebase Emulator는 Firestore transaction·rules를 수정했고 기존 emulator 구성이 실행 가능할 때만 사용한다.
+- 실제 OAuth, 운영 Firestore 쓰기, 실제 Gemini 호출은 자동 테스트하지 않고 비밀값 없는 수동 smoke 항목으로 둔다.
+
+포트폴리오 본체를 수정한 경우:
+
+- JSON 변경: 해당 파일 `python -m json.tool`
+- Python 콘텐츠·라우팅·정적 exporter 변경: 관련 pytest. 공통 콘텐츠 계약을 바꿨으면 작은 전체 pytest 한 번
+- CSS·템플릿 변경: CSS build, 대표 데스크톱 1개와 모바일 1개 smoke
+- 404, dark mode, reduced motion, 추가 viewport는 해당 코드를 수정한 경우에만 확인
+- GitHub Pages 전환: 정적 build 후 필수 출력 경로와 내부 링크 검사
+
+`ai-teaching-deck`을 수정한 경우:
+
+- `npm run validate`
+- `npm run build`
+- Pages base path, hash slide 하나, curriculum download 하나, placeholder asset 하나의 정적 smoke
+
+브라우저나 네트워크 제약이 있으면 테스트 클라이언트와 정적 검증으로 대체하고 그 범위를 명시한다.
 
 ## 완료 조건과 최종 보고
 
@@ -506,12 +615,17 @@ npm run css:build
 - 2020–2026의 7개 연도가 사실 기준에 맞게 표시된다.
 - `noom`과 Django 중복 관계가 정확하다.
 - Notion 원문과 내부 링크가 공개 결과에 없다.
+- 공개 추적 파일과 `RUN_DIR` 산출물에 Notion URL hostname이나 page ID가 없다.
 - 프로젝트 인벤토리 대상 56개에 누락·중복이 없다.
 - 기존 고정 분류 수치와 문서가 새 실제 분류와 일치한다.
-- 배포 방식과 배포 상태가 분리되어 있으며 검증된 URL만 `live_url`에 있다.
+- 현재 배포, 목표 배포, 이전 상태가 분리되어 있으며 검증된 URL만 `live_url`에 있다.
+- OCI 기본 잔류 범위가 `junior-college-admission` web+PostgreSQL과 `gpt-manager` web의 세 컨테이너이며 다른 앱 컨테이너를 자동 추가하지 않는다.
+- `gpt-manager`는 변경되지 않았고 `gpt-vercel`은 단일 writer만 수정했다.
+- `gpt-vercel` P0가 관련 최소 검사를 통과했거나 근거 있는 `blocked`이며, 기능표와 서버리스 보류 항목이 남아 있다.
 - 수동 설정이 남으면 완료로 꾸미지 않고 `awaiting_manual` 상태와 재개 명령을 제공한다.
 - 홈의 대표 프로젝트가 명시적인 대표 기준을 따른다.
 - 두 도메인의 canonical 운영안이 코드·문서·배포 예제에 일치한다.
+- 포트폴리오와 `ai-teaching-deck`의 Pages 정적 출력이 검증되기 전 기존 운영 서비스를 중단하지 않는다.
 - 2026 디자인 방향이 데스크톱과 모바일에 일관되게 적용된다.
 - 가능한 자동 검사와 브라우저 검수가 완료된다.
 
