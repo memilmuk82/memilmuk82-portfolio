@@ -4,6 +4,7 @@
 __pycache__/
 *.py[cod]
 .pytest_cache/
+pytest-of-root/
 .ruff_cache/
 .portfolio-agent-runs/
 .publication-agent-runs/
